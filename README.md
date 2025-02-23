@@ -25,12 +25,6 @@ SendKeys is a Bash script that allows you to send keystrokes to a selected virtu
    - Select a domain by entering the corresponding number.
    - Enter the text you would like to send. Each keystroke will be transmitted to the chosen domain.
 
-## Requirements
-
-- A Unix-like operating system.
-- `virsh` (libvirt) installed and properly configured.
-- Appropriate permissions (sudo access) to execute `virsh` commands.
-
 ## Additional Notes
 
 - The script continuously prompts for text input until it is manually terminated.
