@@ -103,6 +103,7 @@ while true; do
             read -ra key_array <<< "$key_value"
 
             # Send the key(s) via virsh command and null out its output.
+            # https://www.libvirt.org/manpages/virsh.html#send-key
             sudo virsh send-key "$selected_domain" --codeset usb "${key_array[@]}" > /dev/null 2>&1
         fi
     done
