@@ -30,6 +30,9 @@ SendKeys is a Bash script that allows you to send keystrokes to a selected virtu
 - The script continuously prompts for text input until it is manually terminated.
 - It handles a variety of characters including lowercase and uppercase letters, numbers, and special characters by mapping them to their USB HID key codes.
 
+- https://www.libvirt.org/manpages/virsh.html#send-key
+- https://usb.org/sites/default/files/hut1_3_0.pdf#chapter.10
+
 ---
 
 https://github.com/user-attachments/assets/f9446345-e9c1-444a-9ad4-00cbd0bfa3af
