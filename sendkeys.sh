@@ -1,6 +1,3 @@
-# https://www.libvirt.org/manpages/virsh.html#send-key
-# https://usb.org/sites/default/files/hut1_3_0.pdf#chapter.10
-
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -42,6 +39,17 @@ if [ ${#domains[@]} -eq 0 ]; then
     exit 1
 fi
 
+# Ask the user if they want to enable debug mode.
+clear; echo -e "\n  <> Enable debug mode? (y/n)\n"
+read -r -p "  <> #: " debug_choice
+debug=false
+if [[ "$debug_choice" =~ ^[Yy]$ ]]; then
+    debug=true
+    echo -e "\n  <> Debug mode enabled."; sleep 1
+else
+    echo -e "\n  <> Debug mode disabled."; sleep 1
+fi
+
 # Display domains and prompt the user for selection.
 display_domains
 echo ""; read -r -p "  <> #: " choice
@@ -54,6 +62,10 @@ echo -e "\n  <> Using domain: $selected_domain"
 # Prompt for customizable holdtime
 echo -e "\n  <> Enter key press hold time in milliseconds (average human key press hold time is 100-200 ms):\n"
 read -r -p "  <> #: " holdtime
+
+# Prompt for customizable pause time after space character
+echo -e "\n  <> Enter pause time after space character in milliseconds (recommended pause time is 1000 ms):\n"
+read -r -p "  <> #: " pause_time_ms
 
 # Associative array mapping characters to USB HID key codes.
 declare -A key_map=(
@@ -96,13 +108,34 @@ declare -A key_map=(
     [' ']=0x2C   ['\n']=0x28   ['\t']=0x2B
 )
 
+clear
+
+if [ "$debug" = true ]; then
+    echo -e "\n  # [DEBUG] <> [domain: $selected_domain] <> [key press/ms: $holdtime] <> [space pause/ms: $pause_time_ms]"
+else
+    echo -e "\n  # [domain: $selected_domain] <> [key press/ms: $holdtime] <> [space pause/ms: $pause_time_ms]"
+fi
+
+# Main loop for entering text and sending keys
 while true; do
     echo ""; read -r -p "  <> Enter text: " user_input
 
     for (( i=0; i<${#user_input}; i++ )); do
         char="${user_input:$i:1}"
         if [[ -n "${key_map[$char]}" ]]; then
+            if [ "$debug" = true ]; then
+                echo "Sending key: $char"
+            fi
             send_keys "$char" "$holdtime"
+
+            # Check if the character is a space and pause if so
+            if [[ "$char" == " " ]]; then
+                if [ "$debug" = true ]; then
+                    echo "Space detected, pausing..."
+                fi
+                pause_time=$(awk "BEGIN {print $pause_time_ms/1000}")
+                sleep "$pause_time"
+            fi
         fi
     done
 
