@@ -1,43 +1,62 @@
+# https://www.libvirt.org/manpages/virsh.html#send-key
+# https://usb.org/sites/default/files/hut1_3_0.pdf#chapter.10
+
 #!/usr/bin/env bash
 set -euo pipefail
 
-clear
+# Function to get available domains using virsh.
+get_domains() {
+    sudo virsh list --all | awk 'NR>2 {print $2}' | sed '/^$/d'
+}
 
-# Get available domains using virsh.
-# Skip the header lines and capture the second column (the domain name).
-mapfile -t domains < <(sudo virsh list --all | awk 'NR>2 {print $2}' | sed '/^$/d')
+# Function to display domains as numbered options.
+display_domains() {
+    clear; echo -e "\n  <> Select a domain:\n"
+    for i in "${!domains[@]}"; do
+        printf "  %d) %s\n" $((i+1)) "${domains[$i]}"
+    done
+}
+
+# Function to validate user's choice.
+validate_choice() {
+    if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#domains[@]}" ]; then
+        echo -e "\n  <> Invalid selection."
+        exit 1
+    fi
+}
+
+# Function to send keys via virsh command.
+send_keys() {
+    local char="$1"
+    local holdtime="$2"
+    local key_value="${key_map[$char]}"
+    read -ra key_array <<< "$key_value"
+    sudo virsh send-key "$selected_domain" --codeset usb "${key_array[@]}" --holdtime "$holdtime" > /dev/null 2>&1
+}
+
+# Get available domains.
+mapfile -t domains < <(get_domains)
 
 if [ ${#domains[@]} -eq 0 ]; then
-  echo -e "\n  <> No domains found."
-  exit 1
+    echo -e "\n  <> No domains found."
+    exit 1
 fi
 
-# Display domains as numbered options.
-echo -e "\n  <> Select a domain:\n"
-for i in "${!domains[@]}"; do
-  printf "  %d) %s\n" $((i+1)) "${domains[$i]}"
-done
-
-# Prompt the user for selection.
+# Display domains and prompt the user for selection.
+display_domains
 echo ""; read -r -p "  <> #: " choice
-
-# Validate choice.
-if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#domains[@]}" ]; then
-  echo -e "\n  <> Invalid selection."
-  exit 1
-fi
+validate_choice
 
 # Set chosen domain based on selection.
 selected_domain="${domains[$((choice-1))]}"
 echo -e "\n  <> Using domain: $selected_domain"
 
+# Prompt for customizable holdtime
+echo -e "\n  <> Enter key press hold time in milliseconds (average human key press hold time is 100-200 ms):\n"
+read -r -p "  <> #: " holdtime
+
 # Associative array mapping characters to USB HID key codes.
-# https://usb.org/sites/default/files/hut1_3_0.pdf#chapter.10
-
 declare -A key_map=(
-
-    #================================================================================#
-
     # Lowercase alphabet
     ['a']=0x04    ['b']=0x05    ['c']=0x06    ['d']=0x07    ['e']=0x08    ['f']=0x09
     ['g']=0x0A    ['h']=0x0B    ['i']=0x0C    ['j']=0x0D    ['k']=0x0E    ['l']=0x0F
@@ -54,8 +73,6 @@ declare -A key_map=(
     ['U']="0xe1 0x18"   ['V']="0xe1 0x19"   ['W']="0xe1 0x1A"   ['X']="0xe1 0x1B"
     ['Y']="0xe1 0x1C"   ['Z']="0xe1 0x1D"
 
-    #================================================================================#
-
     # Numbers (0-9)
     ['1']=0x1E    ['2']=0x1F    ['3']=0x20    ['4']=0x21    ['5']=0x22
     ['6']=0x23    ['7']=0x24    ['8']=0x25    ['9']=0x26    ['0']=0x27
@@ -64,8 +81,6 @@ declare -A key_map=(
     ['!']="0xe1 0x1e"   ['@']="0xe1 0x1f"   ['#']="0xe1 0x20"   ['$']="0xe1 0x21"
     ['%']="0xe1 0x22"   ['^']="0xe1 0x23"   ['&']="0xe1 0x24"   ['*']="0xe1 0x25"
     ['(']="0xe1 0x26"   [')']="0xe1 0x27"
-
-    #================================================================================#
 
     # Special/symbol characters
     ['-']=0x2D    ['=']=0x2E    ['[']=0x2F    [']']=0x30    ['\']=0x64
@@ -77,34 +92,21 @@ declare -A key_map=(
     ['|']="0xe1 0x64"   [':']="0xe1 0x33"   ['"']="0xe1 0x34"   ['<']="0xe1 0x36"
     ['>']="0xe1 0x37"   ['?']="0xe1 0x38"   ['~']="0xe1 0x35"
 
-    #================================================================================#
-
     # Space and control keys
     [' ']=0x2C   ['\n']=0x28   ['\t']=0x2B
-
-    #================================================================================#
-    
 )
 
 while true; do
-    clear; echo ""
+    echo ""; read -r -p "  <> Enter text: " user_input
 
-    # Read input, preserving case.
-    read -r -p "  <> Enter text: " user_input
-
-    # Process each character of the input string.
     for (( i=0; i<${#user_input}; i++ )); do
         char="${user_input:$i:1}"
-
-        # Check if the character has an exact match in the key_map.
         if [[ -n "${key_map[$char]}" ]]; then
-            key_value="${key_map[$char]}"
-            # Split key_value into an array to support multiple key codes.
-            read -ra key_array <<< "$key_value"
-
-            # Send the key(s) via virsh command and null out its output.
-            # https://www.libvirt.org/manpages/virsh.html#send-key
-            sudo virsh send-key "$selected_domain" --codeset usb "${key_array[@]}" > /dev/null 2>&1
+            send_keys "$char" "$holdtime"
         fi
     done
+
+    # Convert holdtime to seconds for sleep command
+    sleep_time=$(awk "BEGIN {print $holdtime/1000}")
+    sleep "$sleep_time"
 done
