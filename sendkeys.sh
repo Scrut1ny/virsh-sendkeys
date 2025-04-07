@@ -138,8 +138,4 @@ while true; do
             fi
         fi
     done
-
-    # Convert holdtime to seconds for sleep command
-    sleep_time=$(awk "BEGIN {print $holdtime/1000}")
-    sleep "$sleep_time"
 done
