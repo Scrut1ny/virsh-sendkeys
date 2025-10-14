@@ -1,8 +1,5 @@
-http://www.opentopia.com/webcam/6564?viewmode=livevideo
-
 https://vdo.ninja/
 https://meshcast.io/
-https://rtsp.me/
 
 
 # Install necessary packages
@@ -24,8 +21,10 @@ sudo modprobe v4l2loopback video_nr=2 card_label="ClientWebcam" exclusive_caps=1
 # List custom devices
 v4l2-ctl --list-devices
 
-# Stream RTMP feed to virtual webcam device
+# Stream live feed to virtual webcam device
 ffmpeg -i "{RTMP Stream URL}" -f v4l2 -vcodec rawvideo -pix_fmt yuv420p /dev/video2
+ffmpeg -re -i rtmp://XXX.XXX.XXX.XXX/* -f v4l2 -vcodec rawvideo -pix_fmt yuv420p /dev/video2
+ffmpeg -re -i video.mp4 -f v4l2 -vcodec rawvideo -pix_fmt yuv420p /dev/video2
 
 # XML configuration
 
