@@ -22,8 +22,7 @@ sudo modprobe v4l2loopback video_nr=2 card_label="ClientWebcam" exclusive_caps=1
 v4l2-ctl --list-devices
 
 # Stream live feed to virtual webcam device
-ffmpeg -i "{RTMP Stream URL}" -f v4l2 -vcodec rawvideo -pix_fmt yuv420p /dev/video2
-ffmpeg -re -i rtmp://XXX.XXX.XXX.XXX/* -f v4l2 -vcodec rawvideo -pix_fmt yuv420p /dev/video2
+ffmpeg -re -i rtmp://*/* -f v4l2 -vcodec rawvideo -pix_fmt yuv420p /dev/video2
 ffmpeg -re -i video.mp4 -f v4l2 -vcodec rawvideo -pix_fmt yuv420p /dev/video2
 
 # XML configuration
