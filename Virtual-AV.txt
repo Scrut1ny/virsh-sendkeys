@@ -21,23 +21,10 @@ sudo modprobe v4l2loopback video_nr=2 card_label="ClientWebcam" exclusive_caps=1
 # List custom devices
 v4l2-ctl --list-devices
 
-# Stream live feed to virtual webcam device
+# Stream live feed to virtual video device
 ffmpeg -re -i rtmp://*/* -f v4l2 -vcodec rawvideo -pix_fmt yuv420p /dev/video2
 ffmpeg -re -i video.mp4 -f v4l2 -vcodec rawvideo -pix_fmt yuv420p /dev/video2
 
-# XML configuration
-
-<devices>
-  <!-- Other devices like disk, network, etc. -->
-
-  <!-- Video Device (Pass-through the virtual webcam /dev/video2) -->
-  <device>
-    <driver name='vfio' />
-    <source dev='/dev/video2'/>
-    <address type='pci' bus='0x00' slot='0x04' function='0x0'/>
-  </device>
-
-  <!-- Optional: Add other video or USB device configurations if needed -->
-</devices>
-
+# Virtual video device passthrough via v4l2 in QEMU to guest
+qemu-system-x86_64 ... -cameradev v4l2,path=/dev/video0,id=camera0
 
