@@ -36,28 +36,24 @@ def validate_choice(choice: str, max_choice: int) -> int:
         sys.exit("\n  <> Invalid selection.")
     return int(choice) - 1
 
-def send_keys(domain: str, char: str, holdtime: int, key_map: dict[str, str], debug: bool = False):
-    """Send keypress to a virsh domain using send-key."""
-    key_seq = key_map.get(char)
-    if not key_seq:
-        if debug:
-            print(f"  [DEBUG] Unsupported char skipped: {repr(char)}")
-        return
-
-    key_sequence = key_seq.split()
-    cmd = ["sudo", "virsh", "send-key", domain, "--codeset", "usb", *key_sequence, "--holdtime", str(holdtime)]
-
-    if debug:
-        formatted_seq = " + ".join(key_sequence) if len(key_sequence) > 1 else key_sequence[0]
-        print(f"  [DEBUG] Sending key: {repr(char)} → {formatted_seq}")
-
+def send_keys(domain: str, char: str, holdtime_str: str, key_sequence: list[str], debug_info: str | None = None):
+    """Send keypress to a virsh domain using send-key.
+    
+    Optimized version with pre-computed values to minimize runtime overhead.
+    """
+    if debug_info:
+        print(debug_info)
+    
+    # Build command with pre-computed values (no string operations in loop)
+    cmd = ["sudo", "virsh", "send-key", domain, "--codeset", "usb", *key_sequence, "--holdtime", holdtime_str]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
 # -------------------------------
-# Key Map (Prebuilt for performance)
+# Key Map (Pre-computed constant for maximum performance)
 # -------------------------------
 
-def build_key_map() -> dict[str, str]:
+def _build_key_map() -> dict[str, list[str]]:
+    """Build and pre-compute key map as lists for optimal performance."""
     base_symbols = {
         '-': '0x2d', '=': '0x2e', '[': '0x2f', ']': '0x30', '\\': '0x64',
         ';': '0x33', "'": '0x34', ',': '0x36', '.': '0x37', '/': '0x38', '`': '0x35'
@@ -67,7 +63,7 @@ def build_key_map() -> dict[str, str]:
         ';': ':', "'": '"', ',': '<', '.': '>', '/': '?', '`': '~'
     }
 
-    key_map = {
+    key_map_str = {
         # a–z
         **{chr(c): f"0x{c - 93:02x}" for c in range(97, 123)},
         # A–Z
@@ -84,35 +80,42 @@ def build_key_map() -> dict[str, str]:
         # Space and controls
         " ": "0x2c", "\n": "0x28", "\t": "0x2b",
     }
-    return key_map
+    
+    # Pre-split all sequences into lists for zero runtime overhead
+    return {char: seq.split() for char, seq in key_map_str.items()}
+
+# Pre-computed module-level constant - built once, used many times
+KEY_MAP = _build_key_map()
 
 # -------------------------------
 # Main Execution
 # -------------------------------
 
 def main():
+    # Initial setup - single screen clear
     clear_screen()
     domains = get_domains()
     if not domains:
         sys.exit("\n  <> No domains found.")
 
-    debug = prompt("\n  <> Enable debug mode? (y/n)\n\n  <> #: ").lower() == "y"
-    print(f"\n  <> Debug mode {'enabled' if debug else 'disabled'}.")
-    time.sleep(1)
-
-    clear_screen()
-    print("\n  <> Select a domain:\n")
+    # Consolidated input prompts to reduce I/O operations
+    print("\n  <> Configuration:")
+    debug = prompt("  <> Enable debug mode? (y/n): ").lower() == "y"
+    print(f"  <> Debug mode {'enabled' if debug else 'disabled'}.")
+    
+    print("\n  <> Available domains:")
     for i, domain in enumerate(domains, start=1):
         print(f"  {i}) {domain}")
 
-    selected_domain = domains[validate_choice(prompt("\n  <> #: "), len(domains))]
-    print(f"\n  <> Using domain: {selected_domain}")
+    selected_domain = domains[validate_choice(prompt("\n  <> Select domain #: "), len(domains))]
+    holdtime = int(prompt("  <> Key press hold time in ms (default 100): ", "100"))
+    pause_time_ms = int(prompt("  <> Pause after space in ms (default 300): ", "300"))
 
-    holdtime = int(prompt("\n  <> Enter key press hold time in ms (default 100): ", "100"))
-    pause_time_ms = int(prompt("\n  <> Enter pause after space in ms (default 300): ", "300"))
-
-    key_map = build_key_map()
-
+    # Pre-compute values outside loop for maximum performance
+    holdtime_str = str(holdtime)
+    pause_time_sec = pause_time_ms / 1000  # Convert once, not per iteration
+    
+    # Single final screen clear before main loop
     clear_screen()
     print(f"\n  # [domain: {selected_domain}] <> [hold/ms: {holdtime}] <> [space pause/ms: {pause_time_ms}]")
     print("\n  <> Type text to send. Press Ctrl+C to quit.\n")
@@ -120,12 +123,35 @@ def main():
     try:
         while True:
             user_input = input("  <> Enter text: ")
+            
+            # Early exit for empty input
+            if not user_input:
+                continue
+            
+            # Process each character with optimized hot path
             for char in user_input:
-                send_keys(selected_domain, char, holdtime, key_map, debug)
+                key_sequence = KEY_MAP.get(char)
+                
+                # Early exit for unsupported characters
+                if not key_sequence:
+                    if debug:
+                        print(f"  [DEBUG] Unsupported char skipped: {repr(char)}")
+                    continue
+                
+                # Pre-compute debug string outside send_keys if needed
+                debug_info = None
+                if debug:
+                    formatted_seq = " + ".join(key_sequence) if len(key_sequence) > 1 else key_sequence[0]
+                    debug_info = f"  [DEBUG] Sending key: {repr(char)} → {formatted_seq}"
+                
+                send_keys(selected_domain, char, holdtime_str, key_sequence, debug_info)
+                
+                # Space pause with pre-computed value
                 if char == " ":
                     if debug:
                         print("  [DEBUG] Space detected → pausing...")
-                    time.sleep(pause_time_ms / 1000)
+                    time.sleep(pause_time_sec)
+                    
     except KeyboardInterrupt:
         print("\n  <> Exiting...")
         sys.exit(0)
