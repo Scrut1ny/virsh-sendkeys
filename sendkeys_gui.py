@@ -9,8 +9,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
 from PyQt6.QtGui import QFont
-from PyQt6.QtGui import QDesktopServices
-from PyQt6.QtCore import QUrl
 
 # -------------------------------
 # Utility Functions
@@ -26,7 +24,7 @@ def run_cmd(cmd: list[str]) -> str:
 def get_domains() -> list[str]:
     """Retrieve available domains from virsh."""
     output = run_cmd(["sudo", "virsh", "list", "--all"])
-    lines = output.splitlines()[2:]  # Skip header lines
+    lines = output.splitlines()[2:]
     return [line.split()[1] for line in lines if len(line.split()) > 1]
 
 def send_keys(domain: str, key_sequence: list[str], holdtime_str: str):
@@ -35,7 +33,7 @@ def send_keys(domain: str, key_sequence: list[str], holdtime_str: str):
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
 # -------------------------------
-# Key Map (Pre-computed constant for maximum performance)
+# Key Map (Pre-computed constant)
 # -------------------------------
 
 def _build_key_map() -> dict[str, list[str]]:
@@ -50,30 +48,22 @@ def _build_key_map() -> dict[str, list[str]]:
     }
 
     key_map_str = {
-        # a–z
         **{chr(c): f"0x{c - 93:02x}" for c in range(97, 123)},
-        # A–Z
         **{chr(c): f"0xe1 0x{c - 61:02x}" for c in range(65, 91)},
-        # Numbers 1–0
         **{str(i): f"0x{0x1d + i:02x}" for i in range(1, 10)},
         "0": "0x27",
-        # Shifted numbers !@#$%^&*()
         **{s: f"0xe1 0x{0x1d + i:02x}" for s, i in zip("!@#$%^&*()", range(1, 11))},
-        # Symbols
         **base_symbols,
-        # Shifted symbols
         **{shift_pairs[k]: f"0xe1 {v}" for k, v in base_symbols.items() if k in shift_pairs},
-        # Space and controls
         " ": "0x2c", "\n": "0x28", "\t": "0x2b",
     }
 
-    # Pre-split all sequences into lists for zero runtime overhead
     return {char: seq.split() for char, seq in key_map_str.items()}
 
 KEY_MAP = _build_key_map()
 
 # -------------------------------
-# Worker Thread for sending keys
+# Worker Thread
 # -------------------------------
 
 class KeySenderThread(QThread):
@@ -86,14 +76,13 @@ class KeySenderThread(QThread):
         super().__init__()
         self.domain = domain
         self.text = text
-        self.holdtime = holdtime
-        self.pause_time = pause_time / 1000  # Convert to seconds
+        self.holdtime = str(holdtime)
+        self.pause_time = pause_time / 1000
         self.debug = debug
         self._is_running = True
 
     def run(self):
         try:
-            holdtime_str = str(self.holdtime)
             for char in self.text:
                 if not self._is_running:
                     break
@@ -108,7 +97,7 @@ class KeySenderThread(QThread):
                     formatted_seq = " + ".join(key_sequence) if len(key_sequence) > 1 else key_sequence[0]
                     self.progress.emit(f"→ Sending: {repr(char)} ({formatted_seq})")
 
-                send_keys(self.domain, key_sequence, holdtime_str)
+                send_keys(self.domain, key_sequence, self.holdtime)
 
                 if char == " ":
                     if self.debug:
@@ -126,16 +115,6 @@ class KeySenderThread(QThread):
         self._is_running = False
 
 # -------------------------------
-# Custom SpinBox with styled buttons and arrows
-# -------------------------------
-
-class StyledSpinBox(QSpinBox):
-    """SpinBox with styled up/down buttons and visible arrows."""
-    def __init__(self):
-        super().__init__()
-        self.setButtonSymbols(QSpinBox.ButtonSymbols.UpDownArrows)
-
-# -------------------------------
 # Main GUI Application
 # -------------------------------
 
@@ -146,13 +125,12 @@ class VirshKeySenderGUI(QMainWindow):
         self.setGeometry(100, 100, 550, 600)
         self.setMinimumSize(QSize(450, 530))
 
-        # Apply dark theme
-        self.apply_dark_theme()
-
-        # Initialize worker thread
         self.worker_thread = None
+        self.apply_dark_theme()
+        self.setup_ui()
 
-        # Create main widget and layout
+    def setup_ui(self):
+        """Setup UI components."""
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         layout = QVBoxLayout()
@@ -162,54 +140,71 @@ class VirshKeySenderGUI(QMainWindow):
         # Configuration Group
         config_group = QGroupBox("Configuration")
         config_layout = QVBoxLayout()
-        config_layout.setSpacing(8)
+        config_layout.setSpacing(10)
 
-        # Domain selection
+        # Top row: Domain and Debug Mode
+        top_layout = QHBoxLayout()
+        top_layout.setSpacing(5)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+
         domain_layout = QHBoxLayout()
+        domain_layout.setSpacing(3)
         domain_layout.addWidget(QLabel("Domain:"))
         self.domain_combo = QComboBox()
         self.refresh_domains()
+        self.domain_combo.setMinimumWidth(150)
         domain_layout.addWidget(self.domain_combo)
         refresh_btn = QPushButton("Refresh")
         refresh_btn.clicked.connect(self.refresh_domains)
-        refresh_btn.setMaximumWidth(70)
-        refresh_btn.setMaximumHeight(28)
+        refresh_btn.setMaximumWidth(65)
+        refresh_btn.setMaximumHeight(26)
         domain_layout.addWidget(refresh_btn)
-        config_layout.addLayout(domain_layout)
+        top_layout.addLayout(domain_layout)
 
-        # Hold time and Pause time side by side
-        timing_layout = QHBoxLayout()
-        timing_layout.setSpacing(15)
+        top_layout.addStretch()
+
+        self.debug_check = QCheckBox("Debug Mode")
+        top_layout.addWidget(self.debug_check)
+
+        config_layout.addLayout(top_layout)
+
+        # Bottom row: Timing controls (stacked vertically)
+        timing_layout = QVBoxLayout()
+        timing_layout.setSpacing(6)
 
         # Keypress Hold Time
-        holdtime_sub_layout = QHBoxLayout()
-        holdtime_sub_layout.setSpacing(5)
-        holdtime_sub_layout.addWidget(QLabel("Keypress Hold Time (ms):"))
-        self.holdtime_spin = StyledSpinBox()
+        holdtime_layout = QHBoxLayout()
+        holdtime_layout.setSpacing(5)
+        holdtime_label = QLabel("Keypress Hold Time (ms):")
+        holdtime_label.setMinimumWidth(180)
+        holdtime_layout.addWidget(holdtime_label)
+        self.holdtime_spin = QSpinBox()
         self.holdtime_spin.setMinimum(0)
         self.holdtime_spin.setMaximum(5000)
         self.holdtime_spin.setValue(100)
-        self.holdtime_spin.setMaximumWidth(70)
-        holdtime_sub_layout.addWidget(self.holdtime_spin)
-        timing_layout.addLayout(holdtime_sub_layout)
+        self.holdtime_spin.setMaximumWidth(90)
+        self.holdtime_spin.setMinimumHeight(32)
+        holdtime_layout.addWidget(self.holdtime_spin)
+        holdtime_layout.addStretch()
+        timing_layout.addLayout(holdtime_layout)
 
         # Spacebar Pause Time
-        pause_sub_layout = QHBoxLayout()
-        pause_sub_layout.setSpacing(5)
-        pause_sub_layout.addWidget(QLabel("Spacebar Pause Time (ms):"))
-        self.pause_spin = StyledSpinBox()
+        pause_layout = QHBoxLayout()
+        pause_layout.setSpacing(5)
+        pause_label = QLabel("Spacebar Pause Time (ms):")
+        pause_label.setMinimumWidth(180)
+        pause_layout.addWidget(pause_label)
+        self.pause_spin = QSpinBox()
         self.pause_spin.setMinimum(0)
         self.pause_spin.setMaximum(5000)
         self.pause_spin.setValue(300)
-        self.pause_spin.setMaximumWidth(70)
-        pause_sub_layout.addWidget(self.pause_spin)
-        timing_layout.addLayout(pause_sub_layout)
+        self.pause_spin.setMaximumWidth(90)
+        self.pause_spin.setMinimumHeight(32)
+        pause_layout.addWidget(self.pause_spin)
+        pause_layout.addStretch()
+        timing_layout.addLayout(pause_layout)
 
         config_layout.addLayout(timing_layout)
-
-        # Debug mode
-        self.debug_check = QCheckBox("Debug Mode")
-        config_layout.addWidget(self.debug_check)
 
         config_group.setLayout(config_layout)
         layout.addWidget(config_group)
@@ -218,7 +213,6 @@ class VirshKeySenderGUI(QMainWindow):
         input_group = QGroupBox("Input")
         input_layout = QVBoxLayout()
         input_layout.setContentsMargins(5, 5, 5, 5)
-        input_layout.setSpacing(5)
         self.text_input = QTextEdit()
         self.text_input.setPlaceholderText("Enter text to send to the selected domain...")
         self.text_input.setMinimumHeight(90)
@@ -231,7 +225,6 @@ class VirshKeySenderGUI(QMainWindow):
         output_group = QGroupBox("Output")
         output_layout = QVBoxLayout()
         output_layout.setContentsMargins(5, 5, 5, 5)
-        output_layout.setSpacing(5)
         self.output_text = QTextEdit()
         self.output_text.setReadOnly(True)
         self.output_text.setMinimumHeight(80)
@@ -243,6 +236,7 @@ class VirshKeySenderGUI(QMainWindow):
         # Button Group
         button_layout = QHBoxLayout()
         button_layout.setSpacing(8)
+
         self.send_btn = QPushButton("Send")
         self.send_btn.clicked.connect(self.send_text)
         self.send_btn.setMinimumHeight(32)
@@ -262,12 +256,7 @@ class VirshKeySenderGUI(QMainWindow):
         layout.addLayout(button_layout)
 
         # Footer with credits
-        footer_layout = QHBoxLayout()
-        footer_layout.setSpacing(10)
-        footer_layout.setContentsMargins(0, 0, 0, 0)
-
-        credits_label = QLabel()
-        credits_label.setText(
+        credits_label = QLabel(
             'Developed by <a href="https://github.com/Scrut1ny" style="color: #0d47a1; text-decoration: none;">Scrut1ny</a> | '
             '<a href="https://github.com/Scrut1ny/virsh-sendkeys" style="color: #0d47a1; text-decoration: none;">Project Repository</a>'
         )
@@ -276,119 +265,34 @@ class VirshKeySenderGUI(QMainWindow):
         credits_font.setPointSize(8)
         credits_label.setFont(credits_font)
         credits_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        footer_layout.addWidget(credits_label)
-
-        layout.addLayout(footer_layout)
+        layout.addWidget(credits_label)
 
         main_widget.setLayout(layout)
 
     def apply_dark_theme(self):
-        """Apply a dark theme to the application."""
-        dark_stylesheet = """
-        QMainWindow {
-            background-color: #1e1e1e;
-        }
-        QWidget {
-            background-color: #1e1e1e;
-            color: #e0e0e0;
-        }
-        QGroupBox {
-            color: #e0e0e0;
-            border: 1px solid #404040;
-            border-radius: 5px;
-            margin-top: 10px;
-            padding-top: 10px;
-        }
-        QGroupBox::title {
-            subcontrol-origin: margin;
-            left: 10px;
-            padding: 0 3px 0 3px;
-        }
-        QLabel {
-            color: #e0e0e0;
-        }
-        QComboBox {
-            background-color: #2d2d2d;
-            color: #e0e0e0;
-            border: 1px solid #404040;
-            border-radius: 4px;
-            padding: 5px;
-        }
-        QComboBox::drop-down {
-            border: none;
-            background-color: #2d2d2d;
-        }
-        QComboBox QAbstractItemView {
-            background-color: #2d2d2d;
-            color: #e0e0e0;
-            selection-background-color: #0d47a1;
-            border: 1px solid #404040;
-        }
-        QSpinBox {
-            background-color: #2d2d2d;
-            color: #e0e0e0;
-            border: 1px solid #404040;
-            border-radius: 4px;
-            padding: 3px;
-        }
-        QSpinBox::up-button, QSpinBox::down-button {
-            background-color: #0d47a1;
-            border: none;
-            width: 20px;
-            color: #ffffff;
-            font-weight: bold;
-        }
-        QSpinBox::up-button:hover, QSpinBox::down-button:hover {
-            background-color: #1565c0;
-        }
-        QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {
-            background-color: #0a3d91;
-        }
-        QTextEdit {
-            background-color: #2d2d2d;
-            color: #e0e0e0;
-            border: 1px solid #404040;
-            border-radius: 4px;
-            padding: 5px;
-        }
-        QPushButton {
-            background-color: #0d47a1;
-            color: #ffffff;
-            border: none;
-            border-radius: 4px;
-            padding: 6px;
-            font-weight: bold;
-        }
-        QPushButton:hover {
-            background-color: #1565c0;
-        }
-        QPushButton:pressed {
-            background-color: #0a3d91;
-        }
-        QPushButton:disabled {
-            background-color: #404040;
-            color: #808080;
-        }
-        QCheckBox {
-            color: #e0e0e0;
-            spacing: 5px;
-        }
-        QCheckBox::indicator {
-            width: 18px;
-            height: 18px;
-        }
-        QCheckBox::indicator:unchecked {
-            background-color: #2d2d2d;
-            border: 1px solid #404040;
-            border-radius: 3px;
-        }
-        QCheckBox::indicator:checked {
-            background-color: #0d47a1;
-            border: 1px solid #0d47a1;
-            border-radius: 3px;
-        }
-        """
-        self.setStyleSheet(dark_stylesheet)
+        """Apply dark theme stylesheet."""
+        self.setStyleSheet("""
+            QMainWindow { background-color: #1e1e1e; }
+            QWidget { background-color: #1e1e1e; color: #e0e0e0; }
+            QGroupBox { color: #e0e0e0; border: 1px solid #404040; border-radius: 5px; margin-top: 10px; padding-top: 10px; }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px 0 3px; }
+            QLabel { color: #e0e0e0; }
+            QComboBox { background-color: #2d2d2d; color: #e0e0e0; border: 1px solid #404040; border-radius: 4px; padding: 5px; }
+            QComboBox::drop-down { border: none; background-color: #2d2d2d; }
+            QComboBox QAbstractItemView { background-color: #2d2d2d; color: #e0e0e0; selection-background-color: #0d47a1; border: 1px solid #404040; }
+            QSpinBox { background-color: #2d2d2d; color: #e0e0e0; border: 1px solid #404040; border-radius: 4px; padding: 4px; font-size: 14px; }
+            QSpinBox::up-button { width: 24px; }
+            QSpinBox::down-button { width: 24px; }
+            QTextEdit { background-color: #2d2d2d; color: #e0e0e0; border: 1px solid #404040; border-radius: 4px; padding: 5px; }
+            QPushButton { background-color: #0d47a1; color: #ffffff; border: none; border-radius: 4px; padding: 6px; font-weight: bold; }
+            QPushButton:hover { background-color: #1565c0; }
+            QPushButton:pressed { background-color: #0a3d91; }
+            QPushButton:disabled { background-color: #404040; color: #808080; }
+            QCheckBox { color: #e0e0e0; spacing: 5px; }
+            QCheckBox::indicator { width: 18px; height: 18px; }
+            QCheckBox::indicator:unchecked { background-color: #2d2d2d; border: 1px solid #404040; border-radius: 3px; }
+            QCheckBox::indicator:checked { background-color: #0d47a1; border: 1px solid #0d47a1; border-radius: 3px; }
+        """)
 
     def refresh_domains(self):
         """Refresh the list of available domains."""
@@ -423,11 +327,8 @@ class VirshKeySenderGUI(QMainWindow):
         self.stop_btn.setEnabled(True)
 
         self.worker_thread = KeySenderThread(
-            domain,
-            text,
-            self.holdtime_spin.value(),
-            self.pause_spin.value(),
-            self.debug_check.isChecked()
+            domain, text, self.holdtime_spin.value(),
+            self.pause_spin.value(), self.debug_check.isChecked()
         )
         self.worker_thread.progress.connect(self.on_progress)
         self.worker_thread.finished.connect(self.on_finished)
