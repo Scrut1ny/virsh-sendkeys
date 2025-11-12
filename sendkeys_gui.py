@@ -121,7 +121,7 @@ class KeySenderThread(QThread):
 class VirshKeySenderGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Virsh Key Sender")
+        self.setWindowTitle("Virsh SendKeys GUI")
         self.setGeometry(100, 100, 550, 600)
         self.setMinimumSize(QSize(450, 530))
 
